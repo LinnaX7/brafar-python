@@ -4,15 +4,42 @@ BRAFAR is a general feedback generation system for introductory programming assi
 
 If $P_b$ and $P_c$ share different control-flow structures, we will use a novel **bidirectional refactoring** algorithm to align their control-flow structures. After that, we use three major components to generate feedback for the given buggy program $P_b$: (1) **Aligner**, aligns the basic blocks and variables between the buggy program and the reference program. (2) **Fault Locator**, locates the suspicious basic block of the buggy program in a coarse-to-fine manner. And (3) **Repairer**, takes the suspicious basic block and its corresponding basic block in the correct program as input, and outputs block repairs. Notably, the fault localization and block repair will be repeatedly conducted until the generated program passes all the test suites.                    
 
-## About
+## Dataset
+The dataset is from [Refactory](https://github.com/githubhuyang/refactory), a large dataset which consists of 2442 correct submissions and 1783 incorrect student programs from 5 different introductory programming assignments, along with reference programs and instructor-designed test suites. 
 
-This is an implementation of the brafar-python tool for Python introductory programming assignments.
+The `data.zip` contains all the experiments data and the data files are organized in the folder structure described below.
+```
+|-data
+    |-question_xx
+    |    |-ans
+    |    |   |-input_xxx.txt
+    |    |   |-output_xxx.txt
+    |    |   |-...
+    |    |   
+    |    |-code
+    |    |   |-reference
+    |    |   |   |-reference.py
+    |    |   |
+    |    |   |-correct
+    |    |   |   |-correct_xx_xxx.py
+    |    |   |   |-...
+    |    |   |
+    |    |   |-wrong
+    |    |   |   |-wrong_xx_xxxx.py
+    |    |   |   |-... 
+    |    |   |
+    |    |   |-global.py   
+    |    
+    |-...
+```
 
 
 ## Setup
 
-### Operation System
+### Extract Dataset
+`unzip data.zip`
 
+### Operation System
 The package is currently supported/tested on the following operating systems:
 
 - Ubuntu
@@ -28,32 +55,20 @@ The package is currently supported/tested on the following Python versions:
 sudo apt-get install python3 python3-pip
 ```
 
-- zss
+- install package dependencies
 
 ```
-pip3 install zss
+pip3 install -r requirements.txt
 ```
 
-- timeout_decorator
+
+
+## Running BRAFAR
+
+BRAFAR tool is invoked using the command line interface offered by `run.py`. For example, the below command runs brafar-python on the target buggy program of `question_1` in the `./data` directory, with 100% sampling rate of correct programs.
 
 ```
-pip3 install timeout_decorator
-```
-
-### Docker environment
-
-As an alternative to setting up the Python packages manually, the same environment can be obtained by building a docker image based on `Dockerfile`.
-
-```
-docker build -t brafar-python .
-```
-
-## Running brafar-python
-
-Brafar-python tool is invoked using the command line interface offered by `brafar-python/run.py`. For example, the below command runs brafar-python on the target buggy program of `question_1` in the `./example` directory, with 100% sampling rate of correct programs.
-
-```
-python3 brafar-python/run.py ./dara -q question_1 -s 100
+python3 run.py ./data -q question_1 -s 100
 ```
 
 ### The command line arguments
