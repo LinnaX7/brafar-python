@@ -75,7 +75,7 @@ python3 run.py -d ./data -q question_1 -s 100
 
 - `-d` flag specifies the path of the data directory.
 - `-q` flag specifies the question (folder) name within the data directory.
-- `-s` flag specifies the sampling rate.
+- `-s` flag specifies the sampling rate. With -s 0 option, only the instructor provided reference program is used to repair buggy student programs. -s 100 option indicates that 100% of correct student programs (along with the instructor provided reference program) are used.
 
 ### Output
 
