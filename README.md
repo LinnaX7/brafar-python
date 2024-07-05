@@ -68,7 +68,7 @@ pip3 install -r requirements.txt
 BRAFAR tool is invoked using the command line interface offered by `run.py`. For example, the below command runs brafar-python on the target buggy program of `question_1` in the `./data` directory, with 100% sampling rate of correct programs.
 
 ```
-python3 run.py ./data -q question_1 -s 100
+python3 run.py -d ./data -q question_1 -s 100
 ```
 
 ### The command line arguments
