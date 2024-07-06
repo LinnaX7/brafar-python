@@ -49,16 +49,12 @@ The package is currently supported/tested on the following operating systems:
 
 The package is currently supported/tested on the following Python versions:
 
-- python3
-
-```
-sudo apt-get install python3 python3-pip
-```
+- python 3.11
 
 - install package dependencies
 
 ```
-pip3 install -r requirements.txt
+pip install -r requirements.txt
 ```
 
 
@@ -68,7 +64,7 @@ pip3 install -r requirements.txt
 BRAFAR tool is invoked using the command line interface offered by `run.py`. For example, the below command runs brafar-python on the target buggy program of `question_1` in the `./data` directory, with 100% sampling rate of correct programs.
 
 ```
-python3 run.py -d ./data -q question_1 -s 100
+python run.py -d ./data -q question_1 -s 100
 ```
 
 ### The command line arguments
@@ -79,4 +75,24 @@ python3 run.py -d ./data -q question_1 -s 100
 
 ### Output
 
-After the completion of a run by Refactory tool, the intermediate results such as repaired program, time-taken, relative patch size, etc are logged into a csv file ./data/question_x/brafar_result_*.csv. Where, * is the sampling rate of correct programs.
+After the completion of a run by Refactory tool, the intermediate results such as refactored buggy program, refactored correct program, repaired program, time-taken (e.g. search time, bidirectional refactoring time, total time), relative patch size, etc are logged into a csv file ./data/question_x/brafar_result_*.csv. Where, * is the sampling rate of correct programs.
+
+## Comparison Evaluation
+
+### run evaluate.py
+
+After running the BRAFAR tool and the [Refactory](https://github.com/githubhuyang/refactory) tool. You can get their running result in `brafar_result_100.csv` and `refactory_online.csv`.
+
+`evaluate.py` provides different interface implementations to analyze and compare their running results.
+
+#### Bidirectional Refactoring Evaluation
+
+```Run evaluate.py bidirectional_refactoring_evaluation("data")```
+
+This function compares the structural alignment between the BRAFAR tool and the Refactory tool, see Section 4.3. 
+
+#### Repair Strategy Evaluation
+
+```Run evaluate.py compare_repair_size("data")```
+
+This function compares the repair strategy between the BRAFAR tool and the Refactory tool, see Section 4.4. 

@@ -285,7 +285,7 @@ class FaultLocator:
             sys.stdout = sys.__stdout__
             # test_thread.start()
             # test_thread.join()
-            time.sleep(0.2)
+            # time.sleep(0.2)
             meta_blocks = target_m.get_meta_block_nodes()
             block_b: BlockBuilder = target_m.get_block_builder()
             with open("log.txt") as log_f:
