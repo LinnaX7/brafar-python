@@ -1,5 +1,6 @@
 # BRAFAR: Bidirectional Refactoring, Alignment, Fault Localization, and Repair for Programming Assignments
 ## What is BRAFAR
+[![DOI](https://zenodo.org/badge/824122847.svg)](https://zenodo.org/doi/10.5281/zenodo.12670361)
 BRAFAR is a general feedback generation system for introductory programming assignments (IPAs). It takes three inputs: a buggy program $P_b$, (one or more) correct programs $C$, and test cases $T$. Initially, It searches for the closest program $P_c$ as a repair reference. Subsequently, It uses the closest program correct program $P_c$ to repair the given buggy program $P_b$.
 
 If $P_b$ and $P_c$ share different control-flow structures, we will use a novel **bidirectional refactoring** algorithm to align their control-flow structures. After that, we use three major components to generate feedback for the given buggy program $P_b$: (1) **Aligner**, aligns the basic blocks and variables between the buggy program and the reference program. (2) **Fault Locator**, locates the suspicious basic block of the buggy program in a coarse-to-fine manner. And (3) **Repairer**, takes the suspicious basic block and its corresponding basic block in the correct program as input, and outputs block repairs. Notably, the fault localization and block repair will be repeatedly conducted until the generated program passes all the test suites.                    
