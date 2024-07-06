@@ -96,3 +96,11 @@ This function compares the structural alignment between the BRAFAR tool and the 
 ```Run evaluate.py compare_repair_size("data")```
 
 This function compares the repair strategy between the BRAFAR tool and the Refactory tool, see Section 4.4. 
+
+## ChatGPT Repair Result
+
+`ChatGPT4_RepairResult.zip` stores the repair results during the experiment by querying ChatGPT4 the following three queries:
+
+* Repair the following incorrect code ${P}_b$ with minimal modifications.
+* Repair the following incorrect code ${P}_b$ with minimal modifications along with the test cases $T$.
+* Repair the following incorrect code ${P}_b$ with minimal modifications along with the reference correct code ${P}_c$.
