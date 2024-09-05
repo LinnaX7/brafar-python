@@ -4,99 +4,138 @@ import os
 import re
 import numpy as np
 import pandas as pd
-
+import argparse
 from basic_framework.program_partition.program_builder import get_code, ProgramBuilder, syntax_check
 from basic_framework.bidirectional_refactoring.cfs_distance import Distance
 from basic_framework.core import get_case_paths
-from basic_framework.distance import multi_func_code_distance, zss_code_ast_edit, zss_func_ast_size
+from basic_framework.distance import multi_func_code_distance, zss_code_ast_edit, zss_func_ast_size, ProgramTree
 from basic_framework.fault_locator import TestResult
 from basic_framework.program_partition.cfs import get_cfs_map, cfs_map_equal, get_func_map
 
 
-def remove_comments(code):
-    code_node = ast.parse(code)
-    i = 0
-    while i < len(code_node.body):
-        ast_node = code_node.body[i]
-    # for ast_node in code_node.body:
-        if not (isinstance(ast_node, ast.FunctionDef) or (isinstance(ast_node, ast.Import) or isinstance(ast_node,ast.ImportFrom))):
-            code_node.body.remove(ast_node)
-        else:
-            i += 1
-    code = ast.unparse(code_node)
-    pattern = r'#.*$'
-    code = re.sub(pattern, "", code, flags=re.MULTILINE | re.DOTALL)
-    pattern = r"'''[^']*'''"
-    code = re.sub(pattern, "", code, flags=re.MULTILINE | re.DOTALL)
-    return code
+def total_comparison(data_dir_path, tool_name):
+    if tool_name == "brafar":
+        tool_result = "brafar_result_100.csv"
+    elif tool_name == "refactory":
+        tool_result = "refactory_online.csv"
+    else:
+        tool_result = "clara_result.csv"
+    sum_of_repair = 0
+    sum_of_repair_time = 0.0
+    sum_of_repair_rps = 0.0
+    for i in range(5):
+        df = pd.read_csv(os.path.join(data_dir_path, "question_{}".format(i + 1), tool_result))
+        total_repair = 0
+        total_repair_time = 0.0
+        total_repair_rps = 0.0
+        for ind in df.index:
+            status = df.get("Status")[ind]
+            if (isinstance(status, np.bool) and status == True) or (
+                    isinstance(status, str) and status.startswith("success_")):
+                total_repair += 1
+                total_repair_time += df.get("Total Time")[ind]
+                total_repair_rps += df.get("RPS")[ind]
+        average_repair_time = total_repair_time / (float(total_repair))
+        average_RPS = total_repair_rps / (float(total_repair))
+        sum_of_repair += total_repair
+        sum_of_repair_time += total_repair_time
+        sum_of_repair_rps += total_repair_rps
+        print(
+            f"{tool_name} generated {total_repair} correct repairs for question {i + 1} with average repair time {average_repair_time} and average RPS {average_RPS}.")
+    average_repair_time_All = sum_of_repair_time / (float(sum_of_repair))
+    average_RPS_All = sum_of_repair_rps / (float(sum_of_repair))
+
+    print(
+        f"In total, {tool_name} generated {sum_of_repair} correct repairs with average repair time {average_repair_time_All} and average RPS {average_RPS_All}.")
 
 
 def compare_rps(data_dir_path):
-    column = ["Refctory_RPS", "Brafar_RPS"]
+    column = ["File Name", "Refctory_RPS", "Brafar_RPS", "Clara_RPS"]
     statistics = []
     for i in range(5):
         file1 = os.path.join(data_dir_path, "question_{}".format(i + 1), "refactory_online.csv")
         file2 = os.path.join(data_dir_path, "question_{}".format(i + 1), "brafar_result_100.csv")
+        file3 = os.path.join(data_dir_path, "question_{}".format(i + 1), "clara_result.csv")
         df1 = pd.read_csv(file1)
         df2 = pd.read_csv(file2)
+        df3 = pd.read_csv(file3)
         df1.sort_values("File Name", ascending=True, inplace=True)
         df1 = df1.reset_index(drop=True)
         df2.sort_values("File Name", ascending=True, inplace=True)
         df2 = df2.reset_index(drop=True)
+        df3.sort_values("File Name", ascending=True, inplace=True)
+        df3 = df3.reset_index(drop=True)
         for ind in df1.index:
-            col = [df1.get("RPS")[ind], df2.get("RPS")[ind]]
+            col = [df1.get("File Name")[ind], df1.get("RPS")[ind], df2.get("RPS")[ind], df3.get("RPS")[ind]]
             statistics.append(col)
     b = pd.DataFrame(statistics, columns=column)
-
-    data5 = pd.pivot_table(b, index='Control Flow Nodes',
-                           values=['Refactory Edit Dist', 'CFGuider Edit Dist'], margins=True)
-    data5.drop(data5.tail(2).index, inplace=True)
-    data5.plot(kind="line", marker='o')
+    b.to_csv(os.path.join(data_dir_path, "rps_compare.csv"))
 
 
-def calculate_average_time(data_dir_path):
-    all_time = 0.0
-    all_p = 0
+def randomly_select_repair(data_dir_path):
+    column = ["File Name", "Buggy Code", "Brafar_Repair", "Brafar_Result", "Brafar_RPS", "Refactory_Repair",
+              "Refactory_Result", "Refactory_RPS", "Clara_Repair", "Clara_Result", "Clara_RPS"]
+    statistics = []
+
     for i in range(5):
-        time_q = 0.0
-        p_q = 0
+        file1 = os.path.join(data_dir_path, "question_{}".format(i + 1), "brafar_result_100.csv")
         file2 = os.path.join(data_dir_path, "question_{}".format(i + 1), "refactory_online.csv")
+        file3 = os.path.join(data_dir_path, "question_{}".format(i+1), "clara_result.csv")
+        df1 = pd.read_csv(file1)
         df2 = pd.read_csv(file2)
-        for i in df2.index:
-            status = df2.get("Status")[i]
-            # if "success" in status:
-            if not math.isnan(df2.get("Online Refactoring Time")[i]):
-                t = float(df2.get("Online Refactoring Time")[i]) + float(df2.get("GCR Time")[i])
-                if t < 1000:
-                    time_q += t
-                # time_q += float(df2.get("Total Time")[i])
-                    p_q += 1
+        df3 = pd.read_csv(file3)
+        df1.sort_values("File Name", ascending=True, inplace=True)
+        df1 = df1.reset_index(drop=True)
+        df2.sort_values("File Name", ascending=True, inplace=True)
+        df2 = df2.reset_index(drop=True)
+        df3.sort_values("File Name", ascending=True, inplace=True)
+        df3 = df3.reset_index(drop=True)
+        print(df2.get("File Name")[0])
+        if i != 4:
+            random_numbers = np.random.randint(0, len(df1.index), size=int(len(df1.index) * 100 / 1783))
+        else:
+            random_numbers = np.random.randint(0, len(df1.index), size=int(len(df1.index) * 100 / 1783) + 1)
+        for k in random_numbers:
+            # print(df1.get("Status")[j])
+            # print(df2.get("Status")[j])
+            j = k
+            while df1.get("Status")[j] != True or (not "success" in str(df2.get("Status")[j])):
+                j = np.random.randint(0, len(df1.index), 1)[0]
+                while j in random_numbers:
+                    j = np.random.randint(0, len(df1.index), 1)[0]
+            file_name = df1.get("File Name")[j]
+            buggy_code = df1.get("Buggy Code")[j]
+            brafar_repair = df1.get("Repair")[j]
+            brafar_result = df1.get("Status")[j]
+            brafar_rps = df1.get("RPS")[j]
+            if df1.get("File Name")[j] != df2.get("File Name")[j]:
+                print(j)
+                print(df1.get("File Name")[j])
+                print(df2.get("File Name")[j])
+            refactory_repair = df2.get("Repair")[j]
+            refactory_result = df2.get("Status")[j]
+            refactory_rps = df2.get("RPS")[j]
+            clara_repair = df3.get("Repair")[j]
+            clara_result = df3.get("Status")[j]
+            clara_RPS = df3.get("RPS")[j]
+            statistics.append([file_name, buggy_code, brafar_repair, brafar_result, brafar_rps, refactory_repair,
+                               refactory_result, refactory_rps, clara_repair, clara_result, clara_RPS])
+    b = pd.DataFrame(statistics, columns=column)
+    # statistic_show(b)
+    b.to_csv(os.path.join(data_dir_path, "random_select_repairs.csv"))
 
-        all_time += time_q
-        all_p += p_q
-        print("=================Assignment_{}===============================".format(i+1))
-        print(time_q/p_q)
-    print(all_time/all_p)
 
 
-def compare_show(data_dir_path):
-    # file = os.path.join(data_dir_path, "bidirectional_refactoring_evaluation_result.csv")
-    file = os.path.join(data_dir_path, "structure_modification_comparison.csv")
-    df = pd.read_csv(file)
-    statistic_show(df)
-
-
-
-def compare_repair_size(data_dir_path):
+def compare_repair_strategy(data_dir_path):
     brafar_rps_sum_all = 0
     brafar_repair_success_all = 0
     refactory_rps_sum_all = 0
     refactory_repair_success_all = 0
     no_need_refactoring_sum = 0
     for j in range(5):
-        brafar_repair_succuess = 0
+        brafar_repair_success = 0
         brafar_rps_sum = 0
-        refactory_repair_succuess = 0
+        refactory_repair_success = 0
         refactory_rps_sum = 0
         file1 = os.path.join(data_dir_path, "question_{}".format(j + 1), "brafar_result_100.csv")
         file2 = os.path.join(data_dir_path, "question_{}".format(j + 1), "refactory_online.csv")
@@ -112,157 +151,41 @@ def compare_repair_size(data_dir_path):
                 no_need_refactoring_sum += 1
                 if not math.isnan(df1.get("RPS")[i]):
                     brafar_rps_sum += df1.get("RPS")[i]
-                    brafar_repair_succuess += 1
+                    brafar_repair_success += 1
                 if not math.isnan(df2.get("RPS")[i]):
                     refactory_rps_sum += df2.get("RPS")[i]
-                    refactory_repair_succuess += 1
-        print("=================Assignment_{}===============================".format(j+1))
-        print(refactory_repair_succuess)
-        print(refactory_rps_sum)
-        print(float(refactory_rps_sum/float(refactory_repair_succuess)))
-        print(brafar_repair_succuess)
-        print(brafar_rps_sum)
-        print(float(brafar_rps_sum/float(brafar_repair_succuess)))
-        brafar_repair_success_all += brafar_repair_succuess
+                    refactory_repair_success += 1
+        print("===============================Assignment_{}===============================".format(j + 1))
+        print(
+            f"BRAFAR successed generate {brafar_repair_success} correct repair for the incorrect programs which didn't need refactoring in assignment {j + 1}.")
+        # print(brafar_rps_sum_all)
+        print(f"Average RPS: {float(brafar_rps_sum / float(brafar_repair_success))}")
+        print(
+            f"Refactry successed generate {refactory_repair_success} correct repair for the incorrect programs which didn't need refactoring in assignment {j+1}.")
+        # print(refactory_repair_success_all)
+        # print(refactory_rps_sum_all)
+        print(f"Average RPS: {float(refactory_rps_sum / float(refactory_repair_success))}")
+
+        # print(refactory_repair_success)
+        # print(refactory_rps_sum)
+        # print(float(refactory_rps_sum / float(refactory_repair_success)))
+        # print(brafar_repair_success)
+        # print(brafar_rps_sum)
+        # print(float(brafar_rps_sum / float(brafar_repair_success)))
+        brafar_repair_success_all += brafar_repair_success
         brafar_rps_sum_all += brafar_rps_sum
-        refactory_repair_success_all += refactory_repair_succuess
+        refactory_repair_success_all += refactory_repair_success
         refactory_rps_sum_all += refactory_rps_sum
-    print("=============================Total===============================")
-    print(
-        f"Refactry successed generate {refactory_repair_success_all} correct repair for the {no_need_refactoring_sum} incorrect programs which didn't need refactoring.")
-    # print(refactory_repair_success_all)
-    # print(refactory_rps_sum_all)
-    print(f"Average RPS: {float(refactory_rps_sum_all/float(refactory_repair_success_all))}")
+    print("===============================Total===============================")
     print(
         f"BRAFAR successed generate {brafar_repair_success_all} correct repair for the {no_need_refactoring_sum} incorrect programs which didn't need refactoring.")
     # print(brafar_rps_sum_all)
     print(f"Average RPS: {float(brafar_rps_sum_all / float(brafar_repair_success_all))}")
-
-
-def compare_mutation_rps(data_dir_path):
-    mutation_count = 0
-    mutation_repair_succuess = 0
-    mutation_rps_sum = 0
-
-    refactored_rps_sum = 0
-    refactored_repair_succuess = 0
-
-    brafar_count = 0
-    brafar_repair_succuess = 0
-    brafar_rps_sum = 0
-    for i in range(5):
-        file3 = os.path.join(data_dir_path, "question_{}".format(i + 1), "refactory+_result.csv")
-        file2 = os.path.join(data_dir_path, "question_{}".format(i + 1), "refactory_online.csv")
-        file1 = os.path.join(data_dir_path, "question_{}".format(i + 1), "brafar_result_100.csv")
-        df3 = pd.read_csv(file3)
-        for i in df3.index:
-            refactored_repair_succuess += 1
-            refactored_rps_sum += df3.get("Refactory+_RPS")[i]
-        df2 = pd.read_csv(file2)
-        df1 = pd.read_csv(file1)
-        df1.sort_values("File Name", ascending=True, inplace=True)
-        df1 = df1.reset_index(drop=True)
-        df2.sort_values("File Name", ascending=True, inplace=True)
-        df2 = df2.reset_index(drop=True)
-        for i in df2.index:
-            match_ori = df2.get("Match (Ori Code)")[i]
-            match_refactored = df2.get("Match (Rfty Code)")[i]
-            file_name = df2.get("File Name")[i]
-            if match_ori == 0 and match_refactored == 0:
-                mutation_count += 1
-                if not math.isnan(df2.get("RPS")[i]):
-                    mutation_repair_succuess += 1
-                    mutation_rps_sum += df2.get("RPS")[i]
-                if not math.isnan(df1.get("RPS")[i]):
-                    brafar_rps_sum += df1.get("RPS")[i]
-                    brafar_repair_succuess += 1
-
-    print(mutation_count)
-    print(mutation_rps_sum)
-    print(mutation_repair_succuess)
-    print(refactored_rps_sum)
-    print(refactored_repair_succuess)
-    print(brafar_rps_sum)
-    print(brafar_repair_succuess)
-
-
-def randomly_select_repair(data_dir_path):
-    column = ["File Name","Buggy Code","Brafar_Repair","brafar_result_100","Brafar_RPS","Refactory_Repair","Refactory_Result","Refactory_RPS"]
-    statistics = []
-
-    for i in range(5):
-        file1 = os.path.join(data_dir_path, "question_{}".format(i + 1), "brafar_result_100.csv")
-        file2 = os.path.join(data_dir_path, "question_{}".format(i + 1), "refactory_online.csv")
-        df1 = pd.read_csv(file1)
-        df2 = pd.read_csv(file2)
-        df1.sort_values("File Name", ascending=True, inplace=True)
-        df1 = df1.reset_index(drop=True)
-        df2.sort_values("File Name", ascending=True, inplace=True)
-        df2 = df2.reset_index(drop=True)
-        print(df2.get("File Name")[0])
-        if i != 4:
-            random_numbers =  np.random.randint(0, len(df1.index), size=int(len(df1.index)*100/1783))
-        else:
-            random_numbers = np.random.randint(0, len(df1.index), size=int(len(df1.index) * 100 / 1783)+1)
-        for k in random_numbers:
-            # print(df1.get("Status")[j])
-            # print(df2.get("Status")[j])
-            j = k
-            while df1.get("Status")[j] != True or (not "success" in str(df2.get("Status")[j])):
-                j = np.random.randint(0, len(df1.index), 1)[0]
-                while j not in random_numbers:
-                    j = np.random.randint(0, len(df1.index),1)[0]
-            file_name = df1.get("File Name")[j]
-            buggy_code = df1.get("Buggy Code")[j]
-            brafar_repair = df1.get("Repair")[j]
-            brafar_result_100 = df1.get("Status")[j]
-            brafar_rps = df1.get("RPS")[j]
-            if df1.get("File Name")[j] != df2.get("File Name")[j]:
-                print(j)
-                print(df1.get("File Name")[j])
-                print(df2.get("File Name")[j])
-            refactory_repair = df2.get("Repair")[j]
-            refactory_result = df2.get("Status")[j]
-            refactory_rps = df2.get("RPS")[j]
-            statistics.append([file_name, buggy_code,brafar_repair,brafar_result_100,brafar_rps,refactory_repair,refactory_result,refactory_rps])
-    b = pd.DataFrame(statistics, columns=column)
-    # statistic_show(b)
-    b.to_csv(os.path.join(data_dir_path, "random_select_repairs.csv"))
-
-
-def calculate_mutated(data_dir_path):
-    count_match_ori = 0
-    count_match_rft = 0
-    count_match_ccc = 0
-    count_1 = 0
-    count_refactored = 0
-    count_mutate = 0
-    count_failed = 0
-    for i in range(5):
-        # file1 = os.path.join(data_dir_path, "question_{}".format(i + 1), "brafar_result_100.csv")
-        file2 = os.path.join(data_dir_path, "question_{}".format(i + 1), "refactory_online.csv")
-        df2 = pd.read_csv(file2)
-        for ind in df2.index:
-            match_ori = df2.get("Match (Ori Code)")[ind]
-            match_refactored = df2.get("Match (Rfty Code)")[ind]
-            if match_ori == 1:
-                count_match_ori += 1
-            if match_refactored == 1:
-                count_match_rft += 1
-            if match_ori == 1 and match_refactored == 1:
-                count_match_ccc += 1
-            if match_ori == 0:
-                count_1 += 1
-            if match_ori == 0 and match_refactored == 1:
-                count_refactored += 1
-            elif match_ori == 0 and match_refactored == 0:
-                count_mutate += 1
-            elif match_ori == 0:
-                count_failed += 1
-    print(count_1)
-    print(count_refactored)
-    print(count_mutate)
-    print(count_failed)
+    print(
+        f"Refactry successed generate {refactory_repair_success_all} correct repair for the {no_need_refactoring_sum} incorrect programs which didn't need refactoring.")
+    # print(refactory_repair_success_all)
+    # print(refactory_rps_sum_all)
+    print(f"Average RPS: {float(refactory_rps_sum_all / float(refactory_repair_success_all))}")
 
 
 def bidirectional_refactoring_evaluation(data_dir_path):
@@ -286,9 +209,9 @@ def bidirectional_refactoring_evaluation(data_dir_path):
         df1 = df1.reset_index(drop=True)
         df2.sort_values("File Name", ascending=True, inplace=True)
         df2 = df2.reset_index(drop=True)
-        wrong_folder = os.path.join(data_dir_path, "question_{}".format(i + 1),"code", "wrong")
-        correct_folder = os.path.join(data_dir_path, "question_{}".format(i + 1),"code", "correct")
-        reference_folder = os.path.join(data_dir_path, "question_{}".format(i + 1),"code", "reference")
+        wrong_folder = os.path.join(data_dir_path, "question_{}".format(i + 1), "code", "wrong")
+        correct_folder = os.path.join(data_dir_path, "question_{}".format(i + 1), "code", "correct")
+        reference_folder = os.path.join(data_dir_path, "question_{}".format(i + 1), "code", "reference")
         for ind in df2.index:
             file_name = df2.get("File Name")[ind]
             buggy_file = os.path.join(wrong_folder, df2.get("File Name")[ind])
@@ -316,7 +239,8 @@ def bidirectional_refactoring_evaluation(data_dir_path):
                             else:
                                 correct_file = os.path.join(correct_folder, ori_correct_file_name.get(func_name))
                             correct_file_map = get_func_map(get_code(correct_file))
-                            if not cfs_map_equal(get_cfs_map(buggy_file_map.get(func_name)), get_cfs_map(correct_file_map.get(func_name))):
+                            if not cfs_map_equal(get_cfs_map(buggy_file_map.get(func_name)),
+                                                 get_cfs_map(correct_file_map.get(func_name))):
                                 flag = False
                                 count += 1
                     if not flag:
@@ -327,16 +251,19 @@ def bidirectional_refactoring_evaluation(data_dir_path):
                                 else:
                                     correct_file = os.path.join(correct_folder, ori_correct_file_name.get(func_name))
                                 correct_file_map = get_func_map(get_code(correct_file))
-                                if not cfs_map_equal(get_cfs_map(buggy_file_map.get(func_name)), get_cfs_map(correct_file_map.get(func_name))):
+                                if not cfs_map_equal(get_cfs_map(buggy_file_map.get(func_name)),
+                                                     get_cfs_map(correct_file_map.get(func_name))):
                                     buggy_m = buggy_p.get_method(func_name)
                                     loc = buggy_m.lines
                                     cnt = len(buggy_m.struct_list)
-                                    refactoring_time = (df2.get("Online Refactoring Time")[ind]+df2.get("GCR Time")[ind])/float(count)
-                                    br_time = df1.get("Bidirectional Refactoring Time")[ind] /float(count)
+                                    refactoring_time = (df2.get("Online Refactoring Time")[ind] + df2.get("GCR Time")[
+                                        ind]) / float(count)
+                                    br_time = df1.get("Bidirectional Refactoring Time")[ind] / float(count)
                                     buggy_refactored_m = buggy_refactored_mix_p.get_method(func_name)
                                     br_edit_dist = Distance(buggy_m.struct_node, buggy_refactored_m.struct_node).dist
-                                    col = [file_name,func_name, buggy_file_map.get(func_name), loc,cnt,buggy_file_map.get(func_name),True,refactoring_time, 0.0,
-                                           buggy_refactored_m.get_method_code(),True,br_time, br_edit_dist]
+                                    col = [file_name, func_name, buggy_file_map.get(func_name), loc, cnt,
+                                           buggy_file_map.get(func_name), True, refactoring_time, 0.0,
+                                           buggy_refactored_m.get_method_code(), True, br_time, br_edit_dist]
                                     statistics.append(col)
                     if flag:
                         count_wo_r += 1
@@ -356,7 +283,8 @@ def bidirectional_refactoring_evaluation(data_dir_path):
                             else:
                                 correct_file = os.path.join(correct_folder, ori_correct_file_name.get(func_name))
                             correct_file_map = get_func_map(get_code(correct_file))
-                            if not cfs_map_equal(get_cfs_map(buggy_file_map.get(func_name)), get_cfs_map(correct_file_map.get(func_name))):
+                            if not cfs_map_equal(get_cfs_map(buggy_file_map.get(func_name)),
+                                                 get_cfs_map(correct_file_map.get(func_name))):
                                 flag = False
                                 count += 1
                     if not flag:
@@ -367,19 +295,24 @@ def bidirectional_refactoring_evaluation(data_dir_path):
                                 else:
                                     correct_file = os.path.join(correct_folder, ori_correct_file_name.get(func_name))
                                 correct_file_map = get_func_map(get_code(correct_file))
-                                if not cfs_map_equal(get_cfs_map(buggy_file_map.get(func_name)), get_cfs_map(correct_file_map.get(func_name))):
+                                if not cfs_map_equal(get_cfs_map(buggy_file_map.get(func_name)),
+                                                     get_cfs_map(correct_file_map.get(func_name))):
                                     buggy_m = buggy_p.get_method(func_name)
                                     loc = buggy_m.lines
                                     cnt = len(buggy_m.struct_list)
-                                    refactoring_success = cfs_map_equal(get_cfs_map(buggy_file_map.get(func_name)), get_cfs_map(buggy_correct_mix_p.get_method(func_name).get_method_code()))
-                                    refactoring_time = df2.get("Online Refactoring Time")[ind]/float(count)
+                                    refactoring_success = cfs_map_equal(get_cfs_map(buggy_file_map.get(func_name)),
+                                                                        get_cfs_map(buggy_correct_mix_p.get_method(
+                                                                            func_name).get_method_code()))
+                                    refactoring_time = df2.get("Online Refactoring Time")[ind] / float(count)
                                     buggy_mutation_m = buggy_mutation_mix_p.get_method(func_name)
                                     mutation_dist = Distance(buggy_m.struct_node, buggy_mutation_m.struct_node).dist
-                                    br_time = df1.get("Bidirectional Refactoring Time")[ind] /float(count)
+                                    br_time = df1.get("Bidirectional Refactoring Time")[ind] / float(count)
                                     buggy_refactored_m = buggy_refactored_mix_p.get_method(func_name)
                                     br_edit_dist = Distance(buggy_m.struct_node, buggy_refactored_m.struct_node).dist
-                                    col = [file_name,func_name, buggy_file_map.get(func_name), loc,cnt,buggy_mutation_m.get_method_code(),refactoring_success,refactoring_time, mutation_dist,
-                                           buggy_refactored_m.get_method_code(),True,br_time, br_edit_dist]
+                                    col = [file_name, func_name, buggy_file_map.get(func_name), loc, cnt,
+                                           buggy_mutation_m.get_method_code(), refactoring_success, refactoring_time,
+                                           mutation_dist,
+                                           buggy_refactored_m.get_method_code(), True, br_time, br_edit_dist]
                                     statistics.append(col)
                                     if not refactoring_success:
                                         statistics2.append(col)
@@ -389,69 +322,41 @@ def bidirectional_refactoring_evaluation(data_dir_path):
                 print(buggy_file)
     b = pd.DataFrame(statistics, columns=column)
     b2 = pd.DataFrame(statistics2, columns=column)
-    # statistic_show(b)
-    b.to_csv(os.path.join(data_dir_path, "bidirectional_refactoring_evaluation_result.csv"))
-    b2.to_csv(os.path.join(data_dir_path, "structure_modification_comparison.csv"))
-    print(count_w_r)
-    print(count_wo_r)
-    print(count_match_ori)
-    print(count_match_rft)
-    print(count_match_ccc)
+    b.to_csv(os.path.join(data_dir_path, "bidirectional_refactoring_vs_refactory.csv"))
+    b2.to_csv(os.path.join(data_dir_path, "bidirectional_refactoring_vs_structure_mutation.csv"))
+    print(f"There are {count_match_ori} incorrect programs having a matching correct program with the identical "
+          f"control-flow structure.")
+    print(f"There are {count_wo_r} incorrect programs which actually were repaired by both tools without further "
+          f"alignment by separately finding matching correct methods and combining them as references.")
+    print("================================================Bidirectional Refactoring vs. Refactoring================================================")
+    bidirectional_refactoring_vs_refactoring_show(b)
+    print(
+        "================================================Bidirectional Refactoring vs. Structure mutation================================================")
+    bidirectional_refactoring_vs_structure_mutation_show(b2)
 
 
-def get_chatgpt_code_3(file):
-    code = ""
-    with open(file, "r") as f:
-        line = f.readline()
-        flag = False
-        while line:
-            if flag and not line.startswith("'''"):
-                code += line
-            elif not flag and line.startswith("'''"):
-                flag = True
-            elif flag and line.startswith("'''"):
-                break
-            line = f.readline()
-    return remove_comments(code)
+def bidirectional_refactoring_vs_refactoring_show(b: pd.DataFrame):
+    data2 = pd.pivot_table(b, index='Control Flow Nodes',
+                           values=['Refactory Success Rate', 'Brafar Success Rate'], margins=True)
+    data2.drop(data2.tail(2).index, inplace=True)
+    print(data2)
+    data4 = pd.pivot_table(b, index='Control Flow Nodes',
+                           values=['Refactory Time', 'Guidance Time'], margins=True)
+    data4.drop(data4.tail(2).index, inplace=True)
+    print(data4)
 
 
-def get_chatgpt_code_2(file):
-    code = ""
-    with open(file, "r") as f:
-        line = f.readline()
-        flag = False
-        while line:
-            if flag and not line.startswith("'''"):
-                code += line
-            elif not flag and line.startswith("'''"):
-                flag = True
-            elif flag and line.startswith("'''"):
-                break
-            line = f.readline()
-    return remove_comments(code)
-
-
-def get_chatgpt_code(file):
-    code = ""
-    with open(file, "r") as f:
-        line = f.readline()
-        flag = False
-        while line:
-            if flag and not line.startswith("```"):
-                code += line
-            elif not flag and line.startswith("```"):
-                flag = True
-            elif flag and line.startswith("```"):
-                break
-            line = f.readline()
-    return remove_comments(code)
+def bidirectional_refactoring_vs_structure_mutation_show(b: pd.DataFrame):
+    data5 = pd.pivot_table(b, index='Control Flow Nodes',
+                           values=['Refactory Edit Dist', 'Brafar Edit Dist'], margins=True)
+    data5.drop(data5.tail(2).index, inplace=True)
+    print(data5)
 
 
 class Evaluator:
-    def __init__(self, data_dir_path, ques_dir):
-        cur_question = ques_dir
-        self.cur_question = ques_dir
-        self.cur_folder = os.path.join(data_dir_path, cur_question)
+    def __init__(self, data_dir_path, ques_no):
+        self.ques_no = ques_no
+        self.cur_folder = os.path.join(data_dir_path, f"question_{self.ques_no}")
         self.wrong_folder = os.path.join(self.cur_folder, "code", "wrong")
         self.correct_folder = os.path.join(self.cur_folder, "code", "correct")
         self.reference_folder = os.path.join(self.cur_folder, "code", "reference")
@@ -462,100 +367,23 @@ class Evaluator:
         self.__test_case_outputs = sorted(get_case_paths(self.ans_folder, "output"))
         self.__chatgpt_result = os.path.join("ChatGPT4")
 
-        self.__chatgpt_with_ref_result = os.path.join(self.__chatgpt_result, "output_ref", self.cur_question)
+        self.__chatgpt_with_ref_result = os.path.join(self.__chatgpt_result, "output_ref", f"question_{self.ques_no}")
         self.__global_path = None
         if os.path.exists(os.path.join(self.cur_folder, "code", "global.py")):
             self.__global_path = os.path.join(self.cur_folder, "code", "global.py")
 
+    def evaluate_all_correct_programs(self):
+        for correct_file_name in os.listdir(self.correct_folder):
+            if correct_file_name.endswith(".py"):
+                correct_file = os.path.join(self.correct_folder, correct_file_name)
+                correct_code = get_code(correct_file)
+                test_r = self.validate_code(correct_code)
+                if not test_r.get_test_result():
+                    print(correct_file_name)
+
     def validate_code(self, repaired_code):
         test_result = TestResult(repaired_code, self.__test_case_inputs, self.__test_case_outputs, self.__global_path)
         return test_result
-
-    def evaluate_chatgpt(self, target_folder):
-        self.__chatgpt_ori_result = os.path.join(self.__chatgpt_result, target_folder, self.cur_question)
-        column = ["File Name", "Buggy Code", "ChatGPT Result", "Repair Result", "RPS"]
-        statistics = []
-        for file in os.listdir(self.__chatgpt_ori_result):
-            if file.endswith(".py"):
-                col = []
-                is_syntax_error = False
-                chatgpt_result = get_chatgpt_code(os.path.join(self.__chatgpt_ori_result, file))
-                if syntax_check(chatgpt_result) is None:
-                    print(file)
-                    is_syntax_error = True
-                    # continue
-                if chatgpt_result == "":
-                    chatgpt_result = get_chatgpt_code_2(os.path.join(self.__chatgpt_ori_result, file))
-                    if syntax_check(chatgpt_result) is None:
-                        print(file)
-                        is_syntax_error = True
-                        # continue
-                if chatgpt_result == "":
-                    chatgpt_result = get_chatgpt_code_3(os.path.join(self.__chatgpt_ori_result, file))
-                    if syntax_check(chatgpt_result) is None:
-                        print(file)
-                        is_syntax_error = True
-                        # continue
-                if chatgpt_result == "":
-                    print(file)
-                    continue
-                buggy_code = get_code(os.path.join(self.wrong_folder, file))
-                if is_syntax_error:
-                    col = [file, buggy_code, chatgpt_result, False, np.nan]
-                    statistics.append(col)
-                else:
-
-                    repair_r = self.validate_code(chatgpt_result).get_test_result()
-                    patch_size = multi_func_code_distance(buggy_code, chatgpt_result, zss_code_ast_edit)
-                    RPS = float(patch_size)/ float(zss_func_ast_size(buggy_code))
-                    if not repair_r:
-                        RPS = np.nan
-                    col = [file, buggy_code, chatgpt_result, repair_r, RPS]
-                    statistics.append(col)
-        b = pd.DataFrame(statistics, columns=column)
-        # statistic_show(b)
-        b.to_csv(os.path.join(self.__chatgpt_ori_result, "chatgpt_result.csv"))
-
-    def evaluate_chatgpt_with_ref(self):
-        column = ["File Name", "Buggy Code", "ChatGPT Result", "Repair Result", "RPS"]
-        statistics = []
-        reference_code = get_code(os.path.join(self.reference_folder,"reference.py")).replace("\n","").replace(" ","")
-        count = 0
-        for file in os.listdir(self.__chatgpt_with_ref_result):
-            if file.endswith(".py"):
-                col = []
-                chatgpt_result = get_chatgpt_code(os.path.join(self.__chatgpt_with_ref_result, file))
-                if syntax_check(chatgpt_result) is None:
-                    print(file)
-                    continue
-                if chatgpt_result == "":
-                    chatgpt_result = get_chatgpt_code_2(os.path.join(self.__chatgpt_with_ref_result, file))
-                    if syntax_check(chatgpt_result) is None:
-                        print(file)
-                        continue
-                if chatgpt_result == "":
-                    chatgpt_result = get_chatgpt_code_3(os.path.join(self.__chatgpt_with_ref_result, file))
-                    if syntax_check(chatgpt_result) is None:
-                        print(file)
-                        continue
-                if chatgpt_result == "":
-                    print(file)
-                    continue
-                temp = chatgpt_result.replace("\n","").replace(" ","")
-                if temp == reference_code:
-                    count += 1
-                buggy_code = get_code(os.path.join(self.wrong_folder,file))
-                repair_r = self.validate_code(chatgpt_result).get_test_result()
-                patch_size = multi_func_code_distance(buggy_code, chatgpt_result, zss_code_ast_edit)
-                RPS = float(patch_size)/ float(zss_func_ast_size(buggy_code))
-                if not repair_r:
-                    RPS = np.nan
-                col = [file, buggy_code, chatgpt_result, repair_r, RPS]
-                statistics.append(col)
-        print("overfitting:{}".format(count))
-        b = pd.DataFrame(statistics, columns=column)
-        # statistic_show(b)
-        b.to_csv(os.path.join(self.__chatgpt_with_ref_result, "chatgpt_result.csv"))
 
     def evaluate_mutation_result(self):
         df1 = pd.read_csv(self.refactory_result)
@@ -568,9 +396,8 @@ class Evaluator:
         mutation_worse_count = 0
         refactory_rps_sum = 0
         brafar_rps_sum = 0
-        better_count = 0
-        RPS_count = 0
-        mutation_repair_succuess = 0
+        mutation_repair_success = 0
+        brafar_repair_success = 0
         failed_equal = 0
         for i in df1.index:
             match_ori = df1.get("Match (Ori Code)")[i]
@@ -582,100 +409,86 @@ class Evaluator:
                 bug_mutation_code = df1.get("Buggy Mutation")[i]
                 bug_ori_test_result = self.validate_code(bug_ori_code)
                 bug_ori_failed_test_cases = len(bug_ori_test_result.get_failed_input_cases())
-                if bug_mutation_code == np.NAN:
+                if bug_mutation_code == np.nan:
                     bug_mutation_failed_test_cases = len(self.__test_case_inputs)
                 else:
                     bug_mutation_test_result = self.validate_code(bug_mutation_code)
                     bug_mutation_failed_test_cases = len(bug_mutation_test_result.get_failed_input_cases())
                 if bug_mutation_failed_test_cases > bug_ori_failed_test_cases:
                     mutation_worse_count += 1
-                if bug_mutation_failed_test_cases == bug_ori_failed_test_cases and bug_mutation_failed_test_cases == len(self.__test_case_inputs):
+                if bug_mutation_failed_test_cases == bug_ori_failed_test_cases and bug_mutation_failed_test_cases == len(
+                        self.__test_case_inputs):
                     failed_equal += 1
                 mutation_count += 1
                 if not math.isnan(df1.get("RPS")[i]):
                     # print(file_name)
                     refactory_rps_sum += df1.get("RPS")[i]
-                    mutation_repair_succuess += 1
+                    mutation_repair_success += 1
                 if not math.isnan(df2.get("RPS")[i]):
                     brafar_rps_sum += df2.get("RPS")[i]
-                if df1.get("RPS")[i] < df2.get("RPS")[i]+0.01:
+                    brafar_repair_success += 1
+                if math.isnan(df2.get("RPS")[i]):
                     print(file_name)
-                    better_count += 1
-            # if df2.get("RPS")[i] - df1.get("RPS")[i]>0.002:
-            #     print(file_name)
-            #     print(df1.get("RPS")[i])
-            #     print(df2.get("RPS")[i])
-            #     RPS_count += 1
-        print(mutation_count)
-        print(mutation_worse_count)
-        print(failed_equal)
-        print(refactory_rps_sum/mutation_repair_succuess)
-        print(brafar_rps_sum/mutation_count)
-        print(better_count)
-        print(RPS_count)
+        print("===============================Assignment_{}===============================".format(self.ques_no))
+        print(
+            f"BRAFAR successed generate {brafar_repair_success} correct repair for the incorrect programs which required structure mutation in assignment {self.ques_no}.")
+        # print(brafar_rps_sum_all)
+        print(f"Average RPS: {float(brafar_rps_sum / float(brafar_repair_success))}")
+        print(f"After Refactory's structure mutation, {mutation_worse_count} of {mutation_count} incorrect programs failed more test cases.")
+        print(
+            f"Refactry successed generate {mutation_repair_success} correct repair for the incorrect programs which required structure mutation in assignment {self.ques_no}.")
+        # print(refactory_repair_success_all)
+        # print(refactory_rps_sum_all)
+        print(f"Average RPS: {float(refactory_rps_sum / float(mutation_repair_success))}")
+        return brafar_repair_success, brafar_rps_sum, mutation_repair_success, refactory_rps_sum
 
 
-def statistic_show(b: pd.DataFrame):
-    # b.mean()
-    # data1 = pd.pivot_table(b, index='Lines of Code',
-    #                        values=['Refactory Success Rate', 'Brafar Success Rate'], margins=True)
-    # # data1.drop(data1.tail(2).index, inplace=True)
-    # print(data1)
-    # data1.plot(kind="line", marker='o')
-    # print(data1)
-    data2 = pd.pivot_table(b, index='Control Flow Nodes',
-                           values=['Refactory Success Rate', 'Brafar Success Rate'], margins=True)
-    print(data2)
-    data2.drop(data2.tail(2).index, inplace=True)
-    print(data2)
-    data4 = pd.pivot_table(b, index='Control Flow Nodes',
-                           values=['Refactory Time', 'Guidance Time'], margins=True)
-    data4.drop(data4.tail(2).index, inplace=True)
-    print(data4)
-    data5 = pd.pivot_table(b, index='Control Flow Nodes',
-                          values=['Refactory Edit Dist', 'Brafar Edit Dist'], margins=True)
-    data5.drop(data5.tail(2).index, inplace=True)
-    print(data5)
-
-    data3 = pd.pivot_table(b, index='Control Flow Nodes',
-                           values=['Refactory Time', 'Guidance Time'], margins=True)
-    data3.drop(data3.tail(2).index, inplace=True)
-
-    print(data3)
-    data4 = pd.pivot_table(b, index='Lines of Code',
-                           values=['Refactory Time', 'Guidance Time'], margins=True)
-    data4.drop(data4.tail(2).index, inplace=True)
-
-    data5 = pd.pivot_table(b, index='Control Flow Nodes',
-                           values=['Refactory Edit Dist', 'Brafar Edit Dist'], margins=True)
-    data5.drop(data5.tail(2).index, inplace=True)
-    # data5.plot(kind="line", marker='o')
-    print(data5)
-    data6 = pd.pivot_table(b, index='Lines of Code',
-                           values=['Refactory Edit Dist', 'Brafar Edit Dist'], margins=True)
-    data6.drop(data6.tail(2).index, inplace=True)
-    # data6.plot(kind="line", marker='o')
-    # plt.show()
+def structure_mutation_evaluation():
+    total_brafar_repair_success = 0
+    total_brafar_rps_sum = 0.0
+    total_mutation_repair_success = 0
+    total_refactory_rps_sum = 0.0
+    for i in range(5):
+        ev = Evaluator("data", i+1)
+        b, r, m, s = ev.evaluate_mutation_result()
+        total_brafar_repair_success += b
+        total_brafar_rps_sum += r
+        total_mutation_repair_success += m
+        total_refactory_rps_sum += s
+    print("===============================Total===============================")
+    print(
+        f"BRAFAR successed generate {total_brafar_repair_success} correct repair for the incorrect programs which required structure mutation.")
+    # print(brafar_rps_sum_all)
+    print(f"Average RPS: {float(total_brafar_rps_sum / float(total_brafar_repair_success))}")
+    print(
+        f"Refactry successed generate {total_mutation_repair_success} correct repair for the incorrect programs which required structure mutation.")
+    # print(refactory_repair_success_all)
+    # print(refactory_rps_sum_all)
+    print(f"Average RPS: {float(total_refactory_rps_sum / float(total_mutation_repair_success))}")
 
 
 if __name__ == '__main__':
-    # Bidirectional Refactoring Evaluation
-    bidirectional_refactoring_evaluation("data")
-    # Repair Strategy Evaluation
-    compare_repair_size("data")
-    compare_mutation_rps("data")
-    # compare_show("data")
+    # bidirectional_refactoring_evaluation("data")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-d", "--data_dir", help="the path of the data directory.",
+                        nargs='+', required=True)
+    parser.add_argument("-e", "--evaluate", help="the evaluate target.",
+                        nargs='+', default=None)
+    args = parser.parse_args()
 
-    # code = get_chatgpt_code_2("brafar-python/test1.py")
-    # calculate_mutated("data")
-    # ev = Evaluator("data", "question_5")
-    # test_result1 = ev.validate_code(get_code("brafar-python/test1.py"))
-    # test_result2 = ev.validate_code(get_code("brafar-python/test2.py"))
-    # print(test_result1.get_test_result())
-    # print(test_result2.get_test_result())
-    # ev.evaluate_mutation_result()
-    # ev.evaluate_chatgpt("output_testsuite")
-    # ev.evaluate_chatgpt_with_ref()
-    # randomly_select_repair("data")
-    # calculate_average_time("data")
-    # print(remove_comments("def remove_extras(lst):\n\treturn 3\nprint(remove_extras([1, 5, 1, 1, 3, 2]))"))
+    if args.evaluate[0] == "OverallComparison":
+        total_comparison(args.data_dir[0], "brafar")
+        total_comparison(args.data_dir[0], "refactory")
+        total_comparison(args.data_dir[0], "clara")
+
+    if args.evaluate[0] == "RandomComparison":
+        randomly_select_repair(args.data_dir[0])
+
+    if args.evaluate[0] == "BidirectionalRefactoring":
+        bidirectional_refactoring_evaluation("data")
+
+    if args.evaluate[0] == "BidirectionalRefactoring":
+        bidirectional_refactoring_evaluation("data")
+
+    if args.evaluate[0] == "CompareRepairStrategy":
+        compare_repair_strategy("data")

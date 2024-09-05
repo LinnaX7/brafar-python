@@ -94,6 +94,7 @@ def zss_code_ast_edit(code_a, code_b):
     zss_ast_visit(root_node_b, root_zss_node_b)
 
     cost, ops = simple_distance(root_zss_node_a, root_zss_node_b, label_dist=label_weight, return_operations=True)
+    print(ops)
     return cost
 
 @clru_cache(maxsize=1024)
@@ -278,8 +279,19 @@ class Distance:
     def get_do(self):
         return self.dist, self.operations
 
+def syntax_check(code):
+    try:
+        compile(code, "<string>", "exec")
+        return True
+    except:
+        return False
+
 if __name__ == '__main__':
     code1 = get_code("test1.py")
+    node = ast.parse(code1)
+    syntax_check(code1)
     code2 = get_code("test2.py")
+    # code1 = "return len(seq)"
+    # code2 = ""
     print(zss_code_ast_edit(code1,code2))
     print(zss_func_ast_size(code1))

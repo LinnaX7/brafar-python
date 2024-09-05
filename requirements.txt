@@ -1,6 +1,6 @@
+astunparse==1.6.3
+fastcache==1.1.0
+numpy==2.0.0
+pandas==2.2.2
+timeout-decorator==0.5.0
 zss==1.2.0
-numpy
-timeout_decorator
-pandas
-fastcache
-astunparse

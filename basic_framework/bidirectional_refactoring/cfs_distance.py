@@ -41,8 +41,8 @@ class Distance:
         self.Node1 = node1
         self.Node2 = node2
         self.dist, self.operations = zss.simple_distance(self.Node1, self.Node2, return_operations=True)
-        print(self.dist)
-        print(self.operations)
+        # print(self.dist)
+        # print(self.operations)
 
     def get_do(self):
         return self.dist, self.operations
